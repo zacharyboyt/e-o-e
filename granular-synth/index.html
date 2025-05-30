@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Granular Synthesis Playground</title>
+<style>
+  body { font-family: sans-serif; background: #111; color: #eee; }
+  #controls { margin: 1em 0; }
+  label { margin-right: 1em; }
+  input[type=range] { width: 150px; }
+  canvas { display: block; margin: 1em 0; background: #222; }
+</style>
+</head>
+<body>
+  <h1>Granular Synthesis Playground</h1>
+  <input type="file" id="fileInput" accept="audio/*">
+  <button id="play">Play</button>
+  <button id="stop">Stop</button>
+
+  <div id="controls">
+    <label>Grain Size (ms): <input type="range" id="grainSize" min="10" max="500" value="100"> <span id="grainSizeValue">100</span></label>
+    <label>Density (grains/sec): <input type="range" id="density" min="1" max="200" value="10"> <span id="densityValue">10</span></label>
+    <label>Pitch (cents): <input type="range" id="pitch" min="-1200" max="1200" value="0"> <span id="pitchValue">0</span></label>
+  </div>
+  
+  <canvas id="waveform" width="600" height="100"></canvas>
+
+  <script>
+  let audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  let buffer;
+  let playing = false;
+  let interval;
+  let grainSize = 100;
+  let density = 10;
+  let pitch = 0;
+
+  let canvas = document.getElementById('waveform');
+  let canvasCtx = canvas.getContext('2d');
+  let waveformData;
+  let activeGrains = [];
+
+  document.getElementById('fileInput').addEventListener('change', async (e) => {
+    let file = e.target.files[0];
+    if (file) {
+      let arrayBuffer = await file.arrayBuffer();
+      buffer = await audioCtx.decodeAudioData(arrayBuffer);
+      drawWaveform();
+      renderWaveform();
+    }
+  });
+
+  document.getElementById('grainSize').addEventListener('input', (e) => {
+    grainSize = parseInt(e.target.value);
+    document.getElementById('grainSizeValue').textContent = grainSize;
+  });
+
+  document.getElementById('density').addEventListener('input', (e) => {
+    density = parseInt(e.target.value);
+    document.getElementById('densityValue').textContent = density;
+    if (playing) {
+      clearInterval(interval);
+      startGrains();
+    }
+  });
+
+  document.getElementById('pitch').addEventListener('input', (e) => {
+    pitch = parseInt(e.target.value);
+    document.getElementById('pitchValue').textContent = pitch;
+  });
+
+  document.getElementById('play').addEventListener('click', () => {
+    if (!buffer) return;
+    playing = true;
+    startGrains();
+    animate();
+  });
+
+  document.getElementById('stop').addEventListener('click', () => {
+    playing = false;
+    clearInterval(interval);
+  });
+
+  function startGrains() {
+    clearInterval(interval);
+    interval = setInterval(() => {
+      if (!playing) return;
+      let source = audioCtx.createBufferSource();
+      source.buffer = buffer;
+      let grainStart = Math.random() * (buffer.duration - grainSize / 1000);
+      source.playbackRate.value = Math.pow(2, pitch / 1200);
+      source.connect(audioCtx.destination);
+      source.start(0, grainStart, grainSize / 1000);
+      activeGrains.push({ position: grainStart / buffer.duration, duration: grainSize / 1000, startTime: audioCtx.currentTime });
+    }, 1000 / density);
+  }
+
+  function drawWaveform() {
+    let rawData = buffer.getChannelData(0);
+    let step = Math.ceil(rawData.length / canvas.width);
+    waveformData = new Float32Array(canvas.width);
+    for (let i = 0; i < canvas.width; i++) waveformData[i] = rawData[i * step];
+  }
+
+  function animate() {
+    requestAnimationFrame(animate);
+    renderWaveform();
+    let now = audioCtx.currentTime;
+    activeGrains = activeGrains.filter(g => now - g.startTime < g.duration);
+    canvasCtx.fillStyle = 'rgba(255, 0, 0, 0.3)';
+    activeGrains.forEach(g => {
+      let xStart = Math.floor(g.position * canvas.width);
+      let xEnd = xStart + Math.floor((g.duration / buffer.duration) * canvas.width);
+      canvasCtx.fillRect(xStart, 0, xEnd - xStart, canvas.height);
+    });
+  }
+
+  function renderWaveform() {
+    canvasCtx.fillStyle = '#222';
+    canvasCtx.fillRect(0, 0, canvas.width, canvas.height);
+    canvasCtx.lineWidth = 1;
+    canvasCtx.strokeStyle = '#0f0';
+    canvasCtx.beginPath();
+    let x = 0;
+    for (let i = 0; i < waveformData.length; i++) {
+      let y = (0.5 + waveformData[i] / 2) * canvas.height;
+      if (i === 0) canvasCtx.moveTo(x, y);
+      else canvasCtx.lineTo(x, y);
+      x++;
+    }
+    canvasCtx.stroke();
+  }
+  </script>
+</body>
+</html>
