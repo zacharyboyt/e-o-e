@@ -1,0 +1,124 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Basic Audio Explorer</title>
+  <!-- Include Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-900 text-white font-sans">
+  <div class="max-w-md mx-auto p-6">
+    <h1 class="text-2xl font-bold mb-4">Basic Audio Explorer</h1>
+    <div class="mb-4">
+      <p class="mb-2">Frequency: <span id="frequencyValue">440</span> Hz</p>
+      <input id="frequencySlider" type="range" min="100" max="1000" step="1" value="440" class="w-full accent-indigo-500" />
+    </div>
+    <div class="mb-4">
+      <p class="mb-2">Amplitude: <span id="amplitudeValue">0.5</span></p>
+      <input id="amplitudeSlider" type="range" min="0" max="1" step="0.01" value="0.5" class="w-full accent-indigo-500" />
+    </div>
+    <div class="flex gap-4 mb-6">
+      <button id="playButton" class="bg-orange-400 text-black font-semibold px-4 py-2 rounded hover:bg-orange-500">Play</button>
+      <button id="stopButton" class="bg-orange-400 text-black font-semibold px-4 py-2 rounded hover:bg-orange-500" disabled>Stop</button>
+    </div>
+    <canvas id="oscilloscope" width="400" height="150" class="border-2 border-green-400 rounded"></canvas>
+  </div>
+  <script>
+    let audioCtx, oscillator, gainNode, analyser, playing = false;
+    const frequencySlider = document.getElementById('frequencySlider');
+    const amplitudeSlider = document.getElementById('amplitudeSlider');
+    const frequencyValue = document.getElementById('frequencyValue');
+    const amplitudeValue = document.getElementById('amplitudeValue');
+    const playButton = document.getElementById('playButton');
+    const stopButton = document.getElementById('stopButton');
+    const canvas = document.getElementById('oscilloscope');
+    const canvasCtx = canvas.getContext('2d');
+
+    const drawZeroSignal = () => {
+      canvasCtx.clearRect(0, 0, canvas.width, canvas.height);
+      canvasCtx.lineWidth = 2;
+      canvasCtx.strokeStyle = '#4f46e5';
+      canvasCtx.beginPath();
+      canvasCtx.moveTo(0, canvas.height / 2);
+      canvasCtx.lineTo(canvas.width, canvas.height / 2);
+      canvasCtx.stroke();
+    };
+
+    drawZeroSignal();
+
+    const draw = () => {
+      const bufferLength = analyser.fftSize;
+      const dataArray = new Uint8Array(bufferLength);
+      analyser.getByteTimeDomainData(dataArray);
+      let start = 0;
+      for (let i = 1; i < bufferLength; i++) {
+        if (dataArray[i - 1] < 128 && dataArray[i] >= 128) {
+          start = i;
+          break;
+        }
+      }
+      canvasCtx.clearRect(0, 0, canvas.width, canvas.height);
+      canvasCtx.lineWidth = 2;
+      canvasCtx.strokeStyle = '#4f46e5';
+      canvasCtx.beginPath();
+      const visibleLength = Math.min(bufferLength - start, 512);
+      const sliceWidth = canvas.width / visibleLength;
+      let x = 0;
+      for (let i = start; i < start + visibleLength; i++) {
+        const v = dataArray[i] / 128.0;
+        const y = (v * canvas.height) / 2;
+        if (i === start) {
+          canvasCtx.moveTo(x, y);
+        } else {
+          canvasCtx.lineTo(x, y);
+        }
+        x += sliceWidth;
+      }
+      canvasCtx.stroke();
+      if (playing) requestAnimationFrame(draw);
+    };
+
+    playButton.addEventListener('click', () => {
+      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      oscillator = audioCtx.createOscillator();
+      gainNode = audioCtx.createGain();
+      analyser = audioCtx.createAnalyser();
+      oscillator.type = 'sine';
+      oscillator.frequency.setValueAtTime(frequencySlider.value, audioCtx.currentTime);
+      gainNode.gain.setValueAtTime(amplitudeSlider.value, audioCtx.currentTime);
+      oscillator.connect(gainNode);
+      gainNode.connect(analyser);
+      analyser.connect(audioCtx.destination);
+      analyser.fftSize = 2048;
+      oscillator.start();
+      playing = true;
+      playButton.disabled = true;
+      stopButton.disabled = false;
+      draw();
+    });
+
+    stopButton.addEventListener('click', () => {
+      if (oscillator) oscillator.stop();
+      if (oscillator) oscillator.disconnect();
+      if (gainNode) gainNode.disconnect();
+      if (analyser) analyser.disconnect();
+      playing = false;
+      playButton.disabled = false;
+      stopButton.disabled = true;
+      drawZeroSignal();
+    });
+
+    frequencySlider.addEventListener('input', (e) => {
+      frequencyValue.textContent = e.target.value;
+      if (oscillator) oscillator.frequency.setValueAtTime(e.target.value, audioCtx.currentTime);
+    });
+
+    amplitudeSlider.addEventListener('input', (e) => {
+      amplitudeValue.textContent = e.target.value;
+      if (gainNode) gainNode.gain.setValueAtTime(e.target.value, audioCtx.currentTime);
+    });
+  </script>
+</body>
+</html>
